@@ -61,6 +61,7 @@ class ConvTasNet(BaseEncoderMaskerDecoder):
         in_chan=None,
         causal=False,
         fb_name="free",
+        # fb_name="stft",
         kernel_size=16,
         n_filters=512,
         stride=8,

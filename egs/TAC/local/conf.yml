@@ -1,21 +1,46 @@
 data:
   sample_rate: 16000
   segment:
-  train_json: ./data/train.json
-  dev_json: ./data/validation.json
-  test_json: ./data/test.json
+  # data_path: /gpfswork/rech/rte/udh25oz/datasets/LibriSpeech/LibriSpeech/
+  # # train_dir: /gpfswork/rech/rte/udh25oz/datasets/LibriSpeech/train-mini.csv
+  # # train_dir: /gpfswork/rech/rte/udh25oz/datasets/LibriSpeech/LibriSpeech/train-960.csv
+  # train_dir: /gpfswork/rech/rte/udh25oz/datasets/LibriSpeech/LibriSpeech/train-clean-360.csv
+  # valid_dir: /gpfswork/rech/rte/udh25oz/datasets/LibriSpeech/LibriSpeech/dev-clean.csv
+  # test_dir: /gpfswork/rech/rte/udh25oz/datasets/LibriSpeech/LibriSpeech/test-clean.csv
+  data_path: /srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/users/ccui/datasets/LibriSpeech
+  # train_dir: /srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/users/ccui/datasets/LibriSpeech/train-clean-360.csv
+  train_dir: /srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/users/ccui/datasets/LibriSpeech/train-960.csv
+  valid_dir: /srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/users/ccui/datasets/LibriSpeech/dev-clean.csv
+  test_dir: /srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/users/ccui/datasets/LibriSpeech/test-clean.csv
+  sample_rate: 16000
+  # n_src: 2
 net:
   enc_dim: 64
   chunk_size: 50
   hop_size: 25
+  # chunk_size: 150
+  # hop_size: 75
+  # chunk_size: 100
+  # hop_size: 50
+  # chunk_size: 256
+  # hop_size: 128
   feature_dim: 64
   hidden_dim: 128
+  # feature_dim: 512
+  # hidden_dim: 128
   n_layers: 4
   n_src: 2
   window_ms: 4
   context_ms: 16
+  # window_ms: 32
+  # context_ms: 128
+  # window_ms: 16
+  # context_ms: 64
+  # window_ms: 64
+  # context_ms: 256
 optim:
   lr: 0.001
+  # lr: 0.0005 # rertain 
   weight_decay: !!float 1e-5
 training:
   epochs: 200
@@ -24,6 +49,6 @@ training:
   accumulate_batches: 1
   save_top_k: 5
   num_workers: 8
-  patience: 30
+  patience: 10
   half_lr: true
   early_stop: true

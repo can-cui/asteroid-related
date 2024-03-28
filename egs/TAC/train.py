@@ -7,6 +7,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+from pytorch_lightning.strategies import DDPStrategy
 
 from asteroid.models import save_publishable
 from local.tac_dataset import TACDataset
@@ -15,23 +16,38 @@ from asteroid.engine.system import System
 from asteroid.losses import PITLossWrapper, pairwise_neg_sisdr
 from asteroid.models.fasnet import FasNetTAC
 
+from data.data_loader_dynamicMix import SpectrogramDataset, BucketingSampler, AudioDataLoader, _collate_fn
+import warnings
+warnings.filterwarnings("ignore")
+
 # Keys which are not in the conf.yml file can be added here.
 # In the hierarchical dictionary created when parsing, the key `key` can be
 # found at dic['main_args'][key]
 
 # By default train.py will use all available GPUs. The `id` option in run.sh
 # will limit the number of available GPUs for train.py.
+# parser = argparse.ArgumentParser()
 parser = argparse.ArgumentParser()
 parser.add_argument("--exp_dir", default="exp/tmp", help="Full path to save best validation model")
+# parser.add_argument("--n_src", default=2, help="Number of sources")
+parser.add_argument("--n_ch", type=int, default=2, help="Number of sources")
 
 
 class TACSystem(System):
     def common_step(self, batch, batch_nb, train=True):
         inputs, targets, valid_channels = batch
+        # print("inputs.shape") #torch.Size([1, 2, 364313]) B x M x T
+        # print(inputs.shape)
+        # print("targets.shape") # torch.Size([1, 2, 2, 345669]) B x M x S x T
+        # print(targets.shape) 
+        # print(valid_channels.shape) # torch.Size([1]) # B
+        # print(valid_channels) # tensor([2], device='cuda:0', dtype=torch.int32)
         # valid_channels contains a list of valid microphone channels for each example.
         # each example can have a varying number of microphone channels (can come from different arrays).
         # e.g. [[2], [4], [1]] three examples with 2 mics 4 mics and 1 mics.
         est_targets = self.model(inputs, valid_channels)
+        # print("est_targets.shape")
+        # print(est_targets.shape)
         loss = self.loss_func(est_targets, targets[:, 0]).mean()  # first channel is used as ref
 
         return loss
@@ -39,25 +55,67 @@ class TACSystem(System):
 
 def main(conf):
 
-    train_set = TACDataset(conf["data"]["train_json"], conf["data"]["segment"], train=True)
-    val_set = TACDataset(conf["data"]["dev_json"], conf["data"]["segment"], train=False)
+    # train_set = TACDataset(conf["data"]["train_json"], conf["data"]["segment"], train=True)
+    # val_set = TACDataset(conf["data"]["dev_json"], conf["data"]["segment"], train=False)
 
+    # train_loader = DataLoader(
+    #     train_set,
+    #     shuffle=True,
+    #     batch_size=conf["training"]["batch_size"],
+    #     num_workers=conf["training"]["num_workers"],
+    #     drop_last=True,
+    # )
+    # val_loader = DataLoader(
+    #     val_set,
+    #     shuffle=False,
+    #     batch_size=conf["training"]["batch_size"],
+    #     num_workers=conf["training"]["num_workers"],
+    #     drop_last=True,
+    # )
+    train_data = SpectrogramDataset(
+        conf["data"]["data_path"],
+        manifest_filepath_list=conf["data"]["train_dir"],
+        num_spk=conf["net"]["n_src"],
+        max_mics=conf["main_args"]["n_ch"],
+        segment=conf["data"]["segment"],
+        normalize=True,
+        augment=False)
     train_loader = DataLoader(
-        train_set,
+        train_data,
         shuffle=True,
         batch_size=conf["training"]["batch_size"],
         num_workers=conf["training"]["num_workers"],
+        collate_fn=_collate_fn,
+        pin_memory=True, 
         drop_last=True,
     )
-    val_loader = DataLoader(
-        val_set,
-        shuffle=False,
-        batch_size=conf["training"]["batch_size"],
-        num_workers=conf["training"]["num_workers"],
-        drop_last=True,
-    )
+    valid_data = SpectrogramDataset(
+        conf["data"]["data_path"],
+        manifest_filepath_list=conf["data"]["valid_dir"],
+        num_spk=conf["net"]["n_src"],
+        max_mics=conf["main_args"]["n_ch"],
+        segment=conf["data"]["segment"],
+        normalize=True,
+        augment=False)
+    val_loader = AudioDataLoader(valid_data,
+                                 num_workers=conf["training"]["num_workers"],
+                                 batch_size=conf["training"]["batch_size"],
+                                 collate_fn=_collate_fn,
+                                 pin_memory=True, 
+                                 drop_last=True)
 
-    model = FasNetTAC(**conf["net"], sample_rate=conf["data"]["sample_rate"])
+
+    try:
+        # print(conf["main_args"])
+        model_path = os.path.join(conf["main_args"]["exp_dir"], "best_model.pth")
+        # print(model_path)
+        # load pretrained model 
+        model = FasNetTAC.from_pretrained(model_path)
+        print("Load pretrained model")
+
+    except:
+        model = FasNetTAC(**conf["net"], sample_rate=conf["data"]["sample_rate"])
+        print("Training from scratch")
     optimizer = make_optimizer(model.parameters(), **conf["optim"])
     # Define scheduler
     if conf["training"]["half_lr"]:
@@ -107,6 +165,7 @@ def main(conf):
     trainer = pl.Trainer(
         max_epochs=conf["training"]["epochs"],
         callbacks=callbacks,
+        # plugins=DDPStrategy(find_unused_parameters=False),
         default_root_dir=exp_dir,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         strategy="ddp",
@@ -124,15 +183,15 @@ def main(conf):
     system.cpu()
 
     to_save = system.model.serialize()
-    to_save.update(train_set.get_infos())
+    # to_save.update(train_set.get_infos())
     torch.save(to_save, os.path.join(exp_dir, "best_model.pth"))
-    save_publishable(
-        os.path.join(exp_dir, "publish_dir"),
-        to_save,
-        metrics=dict(),
-        train_conf=conf,
-        recipe="asteroid/TAC",
-    )
+    # save_publishable(
+    #     os.path.join(exp_dir, "publish_dir"),
+    #     to_save,
+    #     metrics=dict(),
+    #     train_conf=conf,
+    #     recipe="asteroid/TAC",
+    # )
 
 
 if __name__ == "__main__":

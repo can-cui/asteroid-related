@@ -1,0 +1,37 @@
+# filterbank config
+filterbank:
+  n_filters: 512
+  kernel_size: 128
+  stride: 64
+# Network config
+masknet:
+  n_blocks: 8
+  n_repeats: 3
+  mask_act: relu
+  bn_chan: 128
+  skip_chan: 128
+  hid_chan: 512
+# Training config
+training:
+  epochs: 1
+  batch_size: 6
+  num_workers: 4
+  half_lr: yes
+  early_stop: yes
+# Optim config
+optim:
+  optimizer: adam
+  lr: 0.001
+  weight_decay: 0.
+# Data config
+data:
+  task: sep_clean
+  segment: False
+  data_path: /srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/users/ccui/datasets/LibriSpeechMix/data/original/LibriSpeech/
+  train_dir: /srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/users/ccui/datasets/LibriSpeech/train-clean-100-360.csv
+  # train_dir: /srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/users/ccui/datasets/LibriSpeech/train-mini.csv
+  # train_dir: /srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/users/ccui/datasets/LibriSpeech/train-clean-100.csv
+  valid_dir: /srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/users/ccui/datasets/LibriSpeech/dev-clean.csv
+  test_dir: /srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/users/ccui/datasets/LibriSpeech/test-clean.csv
+  sample_rate: 16000
+  n_src: 2

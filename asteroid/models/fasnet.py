@@ -120,6 +120,8 @@ class FasNetTAC(BaseModel):
         self.conv_2D = nn.Sequential(
             nn.PReLU(), nn.Conv2d(self.feature_dim, self.n_src * self.feature_dim, 1)
         )
+        # if self.output_type=="mask":
+        # self.output_mask = nn.Conv1d(self.feature_dim, self.output_dim + self.window  -self.feature_dim, 1, bias=False)
         self.tanh = nn.Sequential(nn.Conv1d(self.feature_dim, self.output_dim, 1), nn.Tanh())
         self.gate = nn.Sequential(nn.Conv1d(self.feature_dim, self.output_dim, 1), nn.Sigmoid())
 
@@ -132,6 +134,8 @@ class FasNetTAC(BaseModel):
             padding=(context + window, 0),
             stride=(window // 2, 1),
         )
+        # print('unfolded.shape windowing_with_context')
+        # print(unfolded.shape)
 
         n_chunks = unfolded.size(-1)
         unfolded = unfolded.reshape(batch_size, nmic, window + 2 * context, n_chunks)
@@ -153,10 +157,17 @@ class FasNetTAC(BaseModel):
         Returns:
             bf_signal (:class:`torch.Tensor`): beamformed signal with shape :math:`(batch, n\_src, samples)`.
         """
+        # print("x.shape")
+        # print(x.shape) # torch.Size([1, 2, 130551]) # B x n_mics x n_samples
         if valid_mics is None:
             valid_mics = torch.LongTensor([x.shape[1]] * x.shape[0])
         n_samples = x.size(-1)  # Original number of samples of multichannel audio
         all_seg, all_mic_context = self.windowing_with_context(x, self.window, self.context)
+        # print("all_seg.shape")
+        # print(all_seg.shape) #torch.Size([1, 2, 4082, 64]) # B x n_mics x n_samples/(window/2) x window
+        # B x n_mics x T x window
+        # print("all_mic_context.shape")
+        # print(all_mic_context.shape) # torch.Size([1, 2, 4082, 576]) # B x n_mics x n_samples/(window/2) x (window+2*context)
         batch_size, n_mics, seq_length, feats = all_mic_context.size()
         # All_seg contains only the central window, all_mic_context contains also the right and left context
 
@@ -167,10 +178,13 @@ class FasNetTAC(BaseModel):
             .transpose(1, 2)
             .contiguous()
         )  # B*n_mics, seq_len, enc_dim
+        # print("enc_output.shape")
+        # print(enc_output.shape) # torch.Size([2, 64, 4082]) # (BXn_mics) x enc_dim x T
         enc_output = self.enc_LN(enc_output).reshape(
             batch_size, n_mics, self.enc_dim, seq_length
         )  # apply norm
-
+        # print("enc_output.shape")
+        # print(enc_output.shape) # torch.Size([1, 2, 64, 4082]) # B x n_mics x enc_dim x T
         # For each context window cosine similarity is computed. The first channel is chosen as a reference
         ref_seg = all_seg[:, 0].reshape(batch_size * seq_length, self.window).unsqueeze(1)
         all_context = all_mic_context.transpose(1, 2).reshape(
@@ -184,11 +198,18 @@ class FasNetTAC(BaseModel):
             .contiguous()
         )
         # B, nmic, 2*context + 1, seq_len
+        # print("all_cos_sim.shape")
+        # print(all_cos_sim.shape) # torch.Size([1, 2, 513, 4082]) # B x nmic x (2*contect+1) x T
 
         # Encoder features and cosine similarity features are concatenated
         input_feature = torch.cat([enc_output, all_cos_sim], 2)
+        # print("input_feature.shape")
+        # print(input_feature.shape) #  torch.Size([1, 2, 577, 4082]) # B x nmic x (enc_dim+2*contect) x T
+
         # Apply bottleneck to reduce parameters and feed to DPRNN
         input_feature = self.bottleneck(input_feature.reshape(batch_size * n_mics, -1, seq_length))
+        # print("input_feature.shape")
+        # print(input_feature.shape) # torch.Size([2, 64, 4082]) # (BXn_mics) x feature_dim x T
         # We unfold the features for dual path processing
         unfolded = F.unfold(
             input_feature.unsqueeze(-1),
@@ -196,10 +217,19 @@ class FasNetTAC(BaseModel):
             padding=(self.chunk_size, 0),
             stride=(self.hop_size, 1),
         )
+        # print("unfolded.shape 215")
+        # print(unfolded.shape) # torch.Size([2, 8192, 62]) # hop size 64 
+        # torch.Size([2, 6400, 84]) # hop size 
+        # (BXn_mics) x (feature_dimXchunk_size) x (T/hop_size)
+
         n_chunks = unfolded.size(-1)
         unfolded = unfolded.reshape(
             batch_size * n_mics, self.feature_dim, self.chunk_size, n_chunks
         )
+        # print("unfolded.shape 222")
+        # print(unfolded.shape) # torch.Size([2, 64, 128, 62])  # hop size 64
+        # torch.Size([2, 64, 100, 84]) # hop size 50
+        # (BXn_mics) x feature_dim x chunk_size x (T/hop_size)
 
         for i in range(self.n_layers):
             # At each layer we apply DPRNN to process each mic independently and then TAC for inter-mic processing.
@@ -212,10 +242,20 @@ class FasNetTAC(BaseModel):
                 unfolded = tac(unfolded, valid_mics).reshape(
                     batch_size * n_mics, self.feature_dim, self.chunk_size, n_chunks
                 )
+        # print("unfolded.shape 236")
+        # print(unfolded.shape) # torch.Size([2, 64, 128, 62])  # hop size 64
+        # (BXn_mics) x feature_dim x chunk_size x (T/hop_size)
+
         # Output, 2D conv to get different feats for each source
         unfolded = self.conv_2D(unfolded).reshape(
             batch_size * n_mics * self.n_src, self.feature_dim * self.chunk_size, n_chunks
         )
+        # print("unfolded.shape 242")
+        # print(unfolded.shape) # torch.Size([4, 8192, 62])  # hop size 64
+        # torch.Size([4, 6400, 84]) # hop size 50
+        # (BXn_micsXsrc) x (feature_dimXchunk_size) x (T/hop_size)
+
+
         # Dual path processing is done we fold back
         folded = F.fold(
             unfolded,
@@ -224,21 +264,42 @@ class FasNetTAC(BaseModel):
             padding=(self.chunk_size, 0),
             stride=(self.hop_size, 1),
         )
+        # print("folded.shape 253")
+        # print(folded.shape) # torch.Size([4, 64, 4082, 1])
+        # (BXn_micsXsrc) x feature_dim x T x 1
+        # output to joint train
+
         # Dividing to assure perfect reconstruction
         folded = folded.squeeze(-1) / (self.chunk_size / self.hop_size)
+        # print("folded.shape 257")
+        # print(folded.shape) # torch.Size([4, 64, 4082]) # (BXn_micsXsrc) x feature_dim x T 
+
+
         # apply gating to output and scaling to -1 and 1
         folded = self.tanh(folded) * self.gate(folded)
+        # print("folded.shape 261")
+        # print(folded.shape) # torch.Size([4, 513, 4082]) # (BXn_micsXsrc) x (2*contect+1) x T
         folded = folded.view(batch_size, n_mics, self.n_src, -1, seq_length)
+        # print("folded.shape 264")
+        # print(folded.shape) # torch.Size([1, 2, 2, 513, 4082]) # B x n_mic x src x (2*contect+1) x T
 
         # Beamforming
         # Convolving with all mic context --> Filter and Sum
         all_mic_context = all_mic_context.unsqueeze(2).repeat(1, 1, self.n_src, 1, 1)
+        # print("all_mic_context.shape")
+        # print(all_mic_context.shape) # torch.Size([1, 2, 2, 4082, 576]) # B x n_mic x src x T x (window+contect)
+
         all_bf_output = F.conv1d(
             all_mic_context.view(1, -1, self.context * 2 + self.window),
             folded.transpose(3, -1).contiguous().view(-1, 1, self.filter_dim),
             groups=batch_size * n_mics * self.n_src * seq_length,
         )
+        # print("all_bf_output.shape")
+        # print(all_bf_output.shape) #torch.Size([1, 16328, 64]) # B x (n_mic x src x T) x window
+
         all_bf_output = all_bf_output.view(batch_size, n_mics, self.n_src, seq_length, self.window)
+        # print("all_bf_output.shape")
+        # print(all_bf_output.shape) # torch.Size([1, 2, 2, 4082, 64]) # B x n_mic x src x T x window
 
         # Fold back to obtain signal
         all_bf_output = F.fold(
@@ -250,7 +311,12 @@ class FasNetTAC(BaseModel):
             padding=(self.window, 0),
             stride=(self.window // 2, 1),
         )
+        # print("all_bf_output.shape")
+        # print(all_bf_output.shape) # torch.Size([4, 1, 130551, 1]) # (B x n_mic x src) x 1 x samples x 1
+
         bf_signal = all_bf_output.reshape(batch_size, n_mics, self.n_src, n_samples)
+        # print("bf_signal.shape")
+        # print(bf_signal.shape) # torch.Size([1, 2, 2, 130551]) # B x n_mic x src x samples
 
         # We sum over mics after filtering (filters will realign the signals --> delay and sum)
         if valid_mics.max() == 0:
@@ -260,6 +326,8 @@ class FasNetTAC(BaseModel):
                 bf_signal[b, : valid_mics[b]].mean(0).unsqueeze(0) for b in range(batch_size)
             ]
             bf_signal = torch.cat(bf_signal, 0)
+        # print("bf_signal.shape")
+        # print(bf_signal.shape) # torch.Size([1, 2, 130551]) # B x src x samples
 
         return bf_signal
 

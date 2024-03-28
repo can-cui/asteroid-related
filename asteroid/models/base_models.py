@@ -7,7 +7,8 @@ from ..masknn import activations
 from ..utils.torch_utils import pad_x_to_y, script_if_tracing, jitable_shape
 from ..utils.hub_utils import cached_download, SR_HASHTABLE
 from ..utils.deprecation_utils import is_overridden, mark_deprecated
-
+import random
+import numpy as np
 
 @script_if_tracing
 def _unsqueeze_to_3d(x):
@@ -213,14 +214,30 @@ class BaseEncoderMaskerDecoder(BaseModel):
         shape = jitable_shape(wav)
         # Reshape to (batch, n_mix, time)
         wav = _unsqueeze_to_3d(wav)
-
+        # print("wav.shape")
+        # print(wav.shape)
+        # torch.Size([2, 1, 274456])) B x 1 (mix) x T 
         # Real forward
         tf_rep = self.forward_encoder(wav)
+        # print("tf_rep.shape")
+        # print(tf_rep.shape)
+        # torch.Size([2, 512, 34306]) B x D x T (resampled by stride 8)
         est_masks = self.forward_masker(tf_rep)
+        # print("est_masks.shape")
+        # print(est_masks.shape)
+        # torch.Size([2, 2, 512, 34306]) B x 2 (src) x D x T
         masked_tf_rep = self.apply_masks(tf_rep, est_masks)
+        # print("masked_tf_rep.shape")
+        # print(masked_tf_rep.shape)
+        # torch.Size([2, 2, 512, 34306]) B x 2 (src) x D x T
         decoded = self.forward_decoder(masked_tf_rep)
-
+        # print("decoded.shape")
+        # print(decoded.shape)
+        # torch.Size([2, 2, 274456])  B x 1 (mix) x T 
         reconstructed = pad_x_to_y(decoded, wav)
+        # print("reconstructed.shape")
+        # print(reconstructed.shape)
+        # torch.Size([2, 2, 274456]) B x 1 (mix) x T 
         return _shape_reconstructed(reconstructed, shape)
 
     def forward_encoder(self, wav: torch.Tensor) -> torch.Tensor:
@@ -308,3 +325,9 @@ def _shape_reconstructed(reconstructed, size):
 
 # Backwards compatibility
 BaseTasNet = BaseEncoderMaskerDecoder
+
+random_seed=1234
+torch.manual_seed(random_seed)
+torch.cuda.manual_seed_all(random_seed)
+random.seed(random_seed)
+np.random.seed(random_seed)
