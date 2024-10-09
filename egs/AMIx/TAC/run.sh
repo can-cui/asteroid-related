@@ -1,7 +1,7 @@
 # !/bin/bash
 #OAR -q production
-#OAR -p cluster='grele'
-#OAR -l /nodes=1,walltime=168:00
+#OAR -p cluster='grue'
+#OAR -l /nodes=1,walltime=48:00
 # # File where prompts will be outputted
 #OAR -O OUT/oar_job.%jobid%.output
 # # Files where errors will be outputted
@@ -25,6 +25,7 @@ if [ -f "/srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/user
 	. "/srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/users/ccui/miniconda3/etc/profile.d/conda.sh"
 	CONDA_CHANGEPS1=true conda activate speechbrain
 fi
+
 python_path=python
 # Example usage
 # ./run.sh --stage 3 --tag my_tag --id 0,1
@@ -126,7 +127,7 @@ src_type=align # aligned headset
 # dumpdir=data/data_clips_synthesis_8array1_${src_type}_a # directory to put generated json file
 dumpdir=data/data_clips_monoSpk_8array1_${src_type} # directory to put generated json file
 # Training config
-epochs=500 # 200,300 for 2,3 spk
+epochs=400 # 200,300 for 2,3 spk
 # batch_size=8 # grue 2chn 8 0.5H/epo, grue 3chn 8 0.75h/epo, grele 2chn 8 1h/epo
 # num_workers=8
 batch_size=8
@@ -143,10 +144,11 @@ weight_decay=0.
 dataset_type=adhoc
 samplerate=16000
 max_mics=2
-n_src=3
+n_src=2
 segment=4
-exp_dir=exp/dm_AMIs_TAC_${src_type}_${max_mics}chn_${n_src}spk_bs${batch_size}_epo${epochs}_${tag}
-# exp_dir=exp/tmp
+# delay=0.5
+# exp_dir=exp/dm_${src_type}_${max_mics}chn_${n_src}spk_bs${batch_size}_epo${epochs}_over25_${tag} # 4612159 (75) 4612162 (25)
+exp_dir=exp/tmp
 mkdir -p $exp_dir && echo $uuid >>$exp_dir/run_uuid.txt
 echo "Results from the following experiment will be stored in $exp_dir"
 
@@ -184,8 +186,7 @@ if [[ $stage -le 3 ]]; then
 	mkdir -p $exp_dir/publish_dir
 	echo "AMI/TAC" >$exp_dir/publish_dir/recipe_name.txt
 fi
-# exp_dir=exp/dm_AMIs_TAC_align_3spk_chn2_bs16_6358f7f8
-# test_path=/srv/storage/talc2@talc-data2.nancy.grid5000.fr/multispeech/calcul/users/ccui/datasets/AMI/csv/noSil/spk/test_noSil_2spk.csv
+# exp_dir=exp/dm_align_2chn_2spk_bs8_epo400_over25_b3abcde3
 if [[ $stage -le 4 ]]; then
 	echo "Stage 4 : Evaluation"
 	CUDA_VISIBLE_DEVICES=$id $python_path eval_dm.py --test_json $dumpdir/test.json \

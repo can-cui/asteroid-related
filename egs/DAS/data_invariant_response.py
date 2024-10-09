@@ -12,8 +12,10 @@ import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-file_path = "save/a_c_stVec_d1_no0f.npy"  # 8ch
+# file_path = "save/a_c_stVec_d1_no0f.npy"  # 8ch
+file_path = "save/6ch_a_c_stVec_d1_no0f.npy"  # 6ch
 # file_path = "save/4ch_a_c_stVec_d1_no0f.npy"  # 4ch
+# file_path = "save/3ch_a_c_stVec_d1_no0f.npy"  # 3ch
 # file_path = "save/2ch_a_c_stVec_d1_no0f.npy"  # 2ch
 d_a_matrix, d_c_vector_list, steering_vector = np.load(file_path, allow_pickle=True)
 
@@ -55,8 +57,8 @@ def get_response_azi_ele(number_of_mic, azimuth_list, elevation_list):
 
 
 def main():
-    number_of_mic = 8
-    num_ang = 4
+    number_of_mic = 6
+    num_ang = 3
     angle_sep = int(360 / num_ang)
     angle_pairs = [
         (i % 360, (i + angle_sep) % 360) for i in range(337, 337 + num_ang * angle_sep, angle_sep)

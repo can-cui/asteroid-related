@@ -162,7 +162,7 @@ def main():
     SAMPLING_FREQUENCY = 16000
     FFT_LENGTH = 512
     FFT_SHIFT = 256
-    number_of_mic = 2
+    number_of_mic = 3
     MIC_ANGLE_VECTOR = np.arange(number_of_mic, dtype="float32") * (360 / 8) + 0
     MIC_DIAMETER = 0.15
     # save all the A mateix and c vector to a file
@@ -173,7 +173,7 @@ def main():
             os.makedirs(OUT)
         except:
             pass
-    np.save(os.path.join(OUT, "2ch_a_c_stVec_d1_no0f.npy"), a_c_stVec)
+    np.save(os.path.join(OUT, str(number_of_mic) + "ch_a_c_stVec_d1_no0f.npy"), a_c_stVec)
     # get response of a specific angle
     # response = get_response_azi_ele(FFT_LENGTH)
     # visualization(response)

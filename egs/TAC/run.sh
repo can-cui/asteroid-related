@@ -38,7 +38,7 @@ python_path=python
 # ./run.sh --stage 3 --tag my_tag --id 0,1
 
 # General
-stage=4 # Controls from which stage to start
+stage=3 # Controls from which stage to start
 tag=""  # Controls the directory name associated to the experiment
 # You can ask for several GPUs using id (passed to CUDA_VISIBLE_DEVICES)
 id=0,1,2,3,4,5,6,7
@@ -129,10 +129,10 @@ num_workers=4
 # expdir=exp/tmp
 # expdir=exp/960_1000rir_chunk50_win4_accu10_d64_bs${batch_size}_${n_src}spk_${n_ch}chn_${epochs}ep_${tag} # 4329837
 # expdir=exp/360_1000rir_123dereverb_rir1000_chunk50_win4_accu10_d64_bs4_1spk_2chn_15ep_1f09e5e4 #
-expdir=exp/960_1000rir_chunk50_win4_accu10_d64_bs4_3spk_3chn_15ep_664ef84a #
+# expdir=exp/960_1000rir_chunk50_win4_accu10_d64_bs4_3spk_3chn_15ep_664ef84a #
 # expdir=exp/360_1000rir_rir1000_chunk50_win4_accu10_d64_bs4_3spk_2chn_30ep_0c535349 # 3 spk
-mkdir -p $expdir && echo $uuid >>$expdir/run_uuid.txt
-echo "Results from the following experiment will be stored in $expdir"
+# mkdir -p $expdir && echo $uuid >>$expdir/run_uuid.txt
+# echo "Results from the following experiment will be stored in $expdir"
 
 # # if use pretrained model
 if [ -f "$expdir/best_model.pth" ]; then
@@ -161,7 +161,7 @@ if [[ $stage -le 3 ]]; then
 fi
 
 out_dir=MC_Libri_Sen
-# expdir=exp/360_1000rir_rir1000_chunk50_win4_accu10_d64_bs4_2spk_2chn_30ep_c4e646ab
+expdir=exp/360_1000rir_rir1000_chunk50_win4_accu10_d64_bs4_2spk_2chn_30ep_c4e646ab
 
 if [[ $stage -le 4 ]]; then
 	echo "Stage 4 : Evaluation"

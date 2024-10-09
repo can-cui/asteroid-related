@@ -14,8 +14,15 @@ from asteroid.engine.optimizers import make_optimizer
 from asteroid.engine.system_TAC_snr import System
 
 # from asteroid.engine.system import System
-
-from asteroid.losses import PITLossWrapper, pairwise_neg_sisdr
+from asteroid_filterbanks import STFTFB, Encoder, transforms
+from asteroid.losses import (
+    PITLossWrapper,
+    pairwise_neg_sisdr,
+    SingleSrcPMSQE,
+    pairwise_mse,
+    SingleSrcNegSTOI,
+    SingleSrcMultiScaleSpectral,
+)
 from asteroid.models.fasnet import FasNetTAC
 from asteroid.metrics import get_metrics
 from nara_wpe.utils import stft, istft, get_stft_center_frequencies
@@ -37,13 +44,16 @@ compute_metrics = ["si_sdr"]
 # compute_metrics = ["si_sdr", "sdr", "sir", "sar", "stoi"]
 
 stft_options = dict(size=512, shift=128)
+stft = Encoder(STFTFB(kernel_size=512, n_filters=512, stride=256))
+
+loss_func_metrics = PITLossWrapper(pairwise_neg_sisdr)
 
 
 class TACSystem(System):
     def common_step(self, batch, batch_nb, train=True):
         inputs, targets, valid_channels = batch
         # #### WPE
-        # # print(inputs.shape)
+        # print(inputs.shape)
         # Y = stft(inputs.cpu(), **stft_options)
         # # print(Y.shape)
         # Y = Y.transpose(0, 3, 1, 2)
@@ -54,11 +64,16 @@ class TACSystem(System):
         #     shift=stft_options["shift"],
         # )
         # sig = torch.from_numpy(sig).to(valid_channels.device).float()
-        # print(sig.shape)
+        # # print(sig.shape)
 
         # est_targets = self.model(sig, valid_channels)
         #### WPE
         est_targets = self.model(inputs, valid_channels)
+        # ref_spec = transforms.mag(stft(targets[:, 0].cpu())).to(valid_channels.device)
+        # # print(ref_spec.shape)
+        # est_spec = transforms.mag(stft(est_targets.cpu())).to(valid_channels.device)
+        # # print(est_spec.shape)
+        # loss = self.loss_func(est_spec, ref_spec)
         loss = self.loss_func(est_targets, targets[:, 0]).mean()  # first channel is used as ref
         # print("*" * 100)
         # print(batch)
@@ -85,7 +100,7 @@ class TACSystem(System):
         # e.g. [[2], [4], [1]] three examples with 2 mics 4 mics and 1 mics.
 
         # log the metrics
-        loss_, reordered_sources = self.loss_func(est_targets, targets[:, 0], return_est=True)
+        loss_, reordered_sources = loss_func_metrics(est_targets, targets[:, 0], return_est=True)
         # ref:
         # mix shape
         # torch.Size([18, 64000])
@@ -189,7 +204,11 @@ def main(conf):
         yaml.safe_dump(conf, outfile)
 
     # Define Loss function.
-    loss_func = PITLossWrapper(pairwise_neg_sisdr)
+    loss_func = PITLossWrapper(pairwise_neg_sisdr)  # original loss
+    # loss_func = PITLossWrapper(SingleSrcPMSQE(), pit_from="pw_pt")
+    # loss_func = PITLossWrapper(pairwise_mse)  # Measure pairwise mean square error
+    # loss_func = PITLossWrapper(SingleSrcNegSTOI(sample_rate=16000), pit_from="pw_pt")
+    # loss_func = PITLossWrapper(SingleSrcMultiScaleSpectral(), pit_from="pw_pt")
     system = TACSystem(
         model=model,
         loss_func=loss_func,

@@ -79,7 +79,8 @@ def main(conf):
     model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.no_grad().__enter__()
     stft_options = dict(size=512, shift=128)
-    for idx in tqdm(range(len(test_set))):
+    # for idx in tqdm(range(len(test_set))):
+    for idx in save_idx:
         # for idx in tqdm(range(10)):
 
         # Forward the network on the mixture.
@@ -113,13 +114,16 @@ def main(conf):
         # sources = beamforming(sources[None])
         # loss, reordered_sources = loss_func(est_sources, sources[None][:, 0], return_est=True)
         mix_np = mix.cpu().data.numpy()
-        sources_np = sources[0].squeeze(0).cpu().data.numpy()
+        sources_np = sources[0].cpu().data.numpy()
+        # print(sources_np.shape)
+        # print(sources_np[np.newaxis, :].shape)
+        # sys.exit()
         # est_sources_np = est_sources.squeeze(0).cpu().data.numpy()
         ### apply DAS to source
-        # est_sources_np =
+        est_sources_np = sources_np
         utt_metrics = get_metrics(
             sig[0].cpu(),
-            sources_np,
+            sources[0].squeeze(0).cpu().data.numpy(),
             sig[0].cpu(),
             sample_rate=conf["sample_rate"],
             metrics_list=compute_metrics,
@@ -129,30 +133,36 @@ def main(conf):
 
         # Save some examples in a folder. Wav files and metrics as text.
         # if idx in save_idx:
-        #     local_save_dir = os.path.join(ex_save_dir, "ex_{}/".format(idx))
-        #     os.makedirs(local_save_dir, exist_ok=True)
-        #     for chn, mix_chn in enumerate(mix_np):
-        #         sf.write(
-        #             local_save_dir + "mixture{}.wav".format(chn + 1),
-        #             mix_chn,
-        #             conf["sample_rate"],
-        #         )
-        #     # Loop over the sources and estimates
-        #     for src_idx, src in enumerate(sources_np):
-        #         sf.write(local_save_dir + "s{}.wav".format(src_idx + 1), src, conf["sample_rate"])
-        #     for src_idx, est_src in enumerate(est_sources_np):
-        #         # Normalise est src with the absolute value of mix
-        #         normalized_est_src = np.array(
-        #             [(est_src / np.max(np.abs(est_src))) * max(abs(mix_np[0]))], np.float32
-        #         ).squeeze(0)
-        #         sf.write(
-        #             local_save_dir + "s{}_estimate.wav".format(src_idx + 1),
-        #             normalized_est_src,
-        #             conf["sample_rate"],
-        #         )
-        #     # Write local metrics to the example folder.
-        #     with open(local_save_dir + "metrics.json", "w") as f:
-        #         json.dump(utt_metrics, f, indent=0)
+        if True:
+            local_save_dir = os.path.join(ex_save_dir, "ex_{}/".format(idx))
+            os.makedirs(local_save_dir, exist_ok=True)
+            for chn, mix_chn in enumerate(mix_np):
+                sf.write(
+                    local_save_dir + "mixture{}.wav".format(chn + 1),
+                    mix_chn,
+                    conf["sample_rate"],
+                )
+            # Loop over the sources and estimates
+            for src_idx, src in enumerate(sources_np[np.newaxis, :]):
+                sf.write(
+                    local_save_dir + "s{}.wav".format(src_idx + 1),
+                    src,
+                    conf["sample_rate"],
+                )
+            for src_idx, est_src in enumerate(est_sources_np[np.newaxis, :]):
+                # Normalise est src with the absolute value of mix
+                normalized_est_src = np.array(
+                    [(est_src / np.max(np.abs(est_src))) * max(abs(mix_np[0]))],
+                    np.float32,
+                ).squeeze(0)
+                sf.write(
+                    local_save_dir + "s{}_estimate_wpe.wav".format(src_idx + 1),
+                    normalized_est_src,
+                    conf["sample_rate"],
+                )
+            # Write local metrics to the example folder.
+            with open(local_save_dir + "metrics.json", "w") as f:
+                json.dump(utt_metrics, f, indent=0)
 
     # Save all metrics to the experiment folder.
     all_metrics_df = pd.DataFrame(series_list)

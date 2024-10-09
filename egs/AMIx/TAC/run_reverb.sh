@@ -1,7 +1,7 @@
 #!/bin/bash
 #OAR -q production
-#OAR -p cluster='grele'
-#OAR -l /nodes=1,walltime=24:00
+#OAR -p cluster='grue'
+#OAR -l /nodes=1,walltime=168:00
 # # File where prompts will be outputted
 #OAR -O OUT/oar_job.%jobid%.output
 # # Files where errors will be outputted
@@ -29,7 +29,7 @@ python_path=python
 # ./run.sh --stage 3 --tag my_tag --id 0,1
 
 # General
-stage=4 # Controls from which stage to start
+stage=3 # Controls from which stage to start
 tag=""  # Controls the directory name associated to the experiment
 # You can ask for several GPUs using id (passed to CUDA_VISIBLE_DEVICES)
 id=0,1,2,3
@@ -125,9 +125,9 @@ src_type=align                                      # aligned headset
 dumpdir=data/data_clips_monoSpk_8array1_${src_type} # directory to put generated json file
 # Training config
 # full epochs: 500
-epochs=5
+epochs=300
 # batch_size=8 # grue 2chn 8 0.5H/epo, grue 3chn 8 0.75h/epo, grele 2chn 8 1h/epo
-batch_size=6 # graffiti 2chn 6 0.07h/epo align, grele 3chn 6 1.5h/epo st4k, grele 3chn 6 1.5h/epo st4k
+batch_size=4 # graffiti 2chn 6 0.07h/epo align, grele 3chn 6 1.5h/epo st4k, grele 3chn 6 1.5h/epo st4k
 # batch_size=2 # graffiti 3chn 4 0.07h/epo align, grele 3chn 6 1.5h/epo st4k, grele 3chn 6 1.5h/epo st4k
 # batch_size=4 # grele 8chn 2 0.63h/epo align, grele 8chn 2nodes
 num_workers=4
@@ -143,11 +143,11 @@ weight_decay=0.
 dataset_type=adhoc
 samplerate=16000
 n_src=1
-max_mics=2
+max_mics=8
 segment=4
 # exp_dir=exp/tmp
-exp_dir=exp/AMIs_TAC_dereverb_align_1spk_chn2_bs6_22df0c7a # 4358880
-# exp_dir=exp/WPE_AMIs_TAC_dereverb_${src_type}_${n_src}spk_chn${max_mics}_epo${epochs}_bs${batch_size}_${tag} # 4358880
+# exp_dir=exp/TAC_dereverb_align_1spk_chn2_bs6_22df0c7a # 4358880
+exp_dir=exp/WPE_AMIs_TAC_dereverb_${src_type}_${n_src}spk_chn${max_mics}_epo${epochs}_bs${batch_size}_${tag} # 4358880 4625719 4626837
 mkdir -p $exp_dir && echo $uuid >>$exp_dir/run_uuid.txt
 echo "Results from the following experiment will be stored in $exp_dir"
 

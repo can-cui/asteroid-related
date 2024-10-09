@@ -185,7 +185,7 @@ if [[ $stage -le 3 ]]; then
 	mkdir -p $exp_dir/publish_dir
 	echo "AMI/TAC" >$exp_dir/publish_dir/recipe_name.txt
 fi
-exp_dir=exp/DAS_4ch
+exp_dir=exp/DAS_8ch
 if [[ $stage -le 4 ]]; then
 	echo "Stage 4 : Evaluation"
 	CUDA_VISIBLE_DEVICES=$id $python_path eval_DAS.py --test_json $dumpdir/test.json \

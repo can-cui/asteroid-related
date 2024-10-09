@@ -10,6 +10,17 @@ from ..utils.deprecation_utils import is_overridden, mark_deprecated
 import random
 import numpy as np
 
+# from .mvdr_model import MVDR
+
+# from ..dsp.beamforming import RTFMVDRBeamformer
+from speechbrain.processing.multi_mic import Covariance, GccPhat, DelaySum, Mvdr
+from speechbrain.processing.features import STFT, ISTFT
+
+# from speechbrain.processing.multi_mic import
+# from speechbrain.processing.multi_mic.
+# from torchaudio.transfors import MVDR
+
+
 @script_if_tracing
 def _unsqueeze_to_3d(x):
     """Normalize shape of `x` to [batch, n_chan, time]."""
@@ -216,7 +227,7 @@ class BaseEncoderMaskerDecoder(BaseModel):
         wav = _unsqueeze_to_3d(wav)
         # print("wav.shape")
         # print(wav.shape)
-        # torch.Size([2, 1, 274456])) B x 1 (mix) x T 
+        # torch.Size([2, 1, 274456])) B x 1 (mix) x T
         # Real forward
         tf_rep = self.forward_encoder(wav)
         # print("tf_rep.shape")
@@ -233,12 +244,246 @@ class BaseEncoderMaskerDecoder(BaseModel):
         decoded = self.forward_decoder(masked_tf_rep)
         # print("decoded.shape")
         # print(decoded.shape)
-        # torch.Size([2, 2, 274456])  B x 1 (mix) x T 
+        # torch.Size([2, 2, 274456])  B x 1 (mix) x T
         reconstructed = pad_x_to_y(decoded, wav)
         # print("reconstructed.shape")
         # print(reconstructed.shape)
-        # torch.Size([2, 2, 274456]) B x 1 (mix) x T 
+        # torch.Size([2, 2, 274456]) B x 1 (mix) x T
         return _shape_reconstructed(reconstructed, shape)
+
+    def forward_encoder(self, wav: torch.Tensor) -> torch.Tensor:
+        """Computes time-frequency representation of `wav`.
+
+        Args:
+            wav (torch.Tensor): waveform tensor in 3D shape, time last.
+
+        Returns:
+            torch.Tensor, of shape (batch, feat, seq).
+        """
+        tf_rep = self.encoder(wav)
+        return self.enc_activation(tf_rep)
+
+    def forward_masker(self, tf_rep: torch.Tensor) -> torch.Tensor:
+        """Estimates masks from time-frequency representation.
+
+        Args:
+            tf_rep (torch.Tensor): Time-frequency representation in (batch,
+                feat, seq).
+
+        Returns:
+            torch.Tensor: Estimated masks
+        """
+        return self.masker(tf_rep)
+
+    def apply_masks(self, tf_rep: torch.Tensor, est_masks: torch.Tensor) -> torch.Tensor:
+        """Applies masks to time-frequency representation.
+
+        Args:
+            tf_rep (torch.Tensor): Time-frequency representation in (batch,
+                feat, seq) shape.
+            est_masks (torch.Tensor): Estimated masks.
+
+        Returns:
+            torch.Tensor: Masked time-frequency representations.
+        """
+        return est_masks * tf_rep.unsqueeze(1)
+
+    def forward_decoder(self, masked_tf_rep: torch.Tensor) -> torch.Tensor:
+        """Reconstructs time-domain waveforms from masked representations.
+
+        Args:
+            masked_tf_rep (torch.Tensor): Masked time-frequency representation.
+
+        Returns:
+            torch.Tensor: Time-domain waveforms.
+        """
+        return self.decoder(masked_tf_rep)
+
+    def get_model_args(self):
+        """Arguments needed to re-instantiate the model."""
+        fb_config = self.encoder.filterbank.get_config()
+        masknet_config = self.masker.get_config()
+        # Assert both dict are disjoint
+        if not all(k not in fb_config for k in masknet_config):
+            raise AssertionError(
+                "Filterbank and Mask network config share common keys. Merging them is not safe."
+            )
+        # Merge all args under model_args.
+        model_args = {
+            **fb_config,
+            **masknet_config,
+            "encoder_activation": self.encoder_activation,
+        }
+        return model_args
+
+
+class BaseEncoderMaskerDecoder_MVDR(BaseModel):
+    """Base class for encoder-masker-decoder separation models.
+
+    Args:
+        encoder (Encoder): Encoder instance.
+        masker (nn.Module): masker network.
+        decoder (Decoder): Decoder instance.
+        encoder_activation (Optional[str], optional): Activation to apply after encoder.
+            See ``asteroid.masknn.activations`` for valid values.
+    """
+
+    def __init__(self, encoder, masker, decoder, encoder_activation=None):
+        super().__init__(sample_rate=getattr(encoder, "sample_rate", None))
+        self.encoder = encoder
+        self.masker = masker
+        self.decoder = decoder
+        self.encoder_activation = encoder_activation
+        self.enc_activation = activations.get(encoder_activation or "linear")()
+        # self.stft = STFT(sample_rate=16000)
+        # self.istft = ISTFT(sample_rate=16000)
+        # self.cov = Covariance()
+        # self.gccphat = GccPhat()
+        # self.mvdr = MVDR(causal=True)
+        self.mvdr = MVDR(multi_mask=True)
+
+    # def permute_sig(self, est_sources, causal=False):
+    #     # b s c t
+    #     reest_sources = [
+    #         est_sources[:, :, 0, :],
+    #     ]
+    #     for chan in range(1, est_sources.shape[2]):
+    #         if causal:
+    #             est_sources_rest = torch.zeros_like(est_sources[:, :, chan, :])
+    #             if est_sources.shape[-1] < self.stft_dict["kernel_size"]:
+    #                 reest_sources.append(
+    #                     self.permute(
+    #                         est_sources[:, :, chan, :], est_sources[:, :, 0, :], return_est=True
+    #                     )[1]
+    #                 )
+    #             else:
+    #                 est_sources_rest[:, :, 0 : self.stft_dict["kernel_size"]] = self.permute(
+    #                     est_sources[:, :, chan, 0 : self.stft_dict["kernel_size"]],
+    #                     est_sources[:, :, 0, 0 : self.stft_dict["kernel_size"]],
+    #                     return_est=True,
+    #                 )[1]
+    #                 for starti in range(
+    #                     self.stft_dict["kernel_size"],
+    #                     est_sources.shape[-1],
+    #                     self.stft_dict["stride"],
+    #                 ):
+    #                     endi = min(starti + self.stft_dict["stride"], est_sources.shape[-1])
+    #                     est_sources_rest[:, :, starti:endi] = self.permute(
+    #                         est_sources[:, :, chan, 0:endi],
+    #                         est_sources[:, :, 0, 0:endi],
+    #                         return_est=True,
+    #                     )[1][:, :, starti:endi]
+    #                 reest_sources.append(est_sources_rest)
+    #         else:
+    #             reest_sources.append(
+    #                 self.permute(
+    #                     est_sources[:, :, chan, :], est_sources[:, :, 0, :], return_est=True
+    #                 )[1]
+    #             )
+    #     return torch.stack(reest_sources, 2)
+    def mvdr_beamforming(self, mixture, target):
+        # Ensure the input shapes are compatible
+        assert mixture.shape == target.shape
+
+        # Get the number of batches (B), channels (C), and time-frequency bins (F, T)
+        B, C, F, T = mixture.shape
+
+        # Compute the spatial covariance matrix across time and frequency
+        R = torch.mean(torch.matmul(mixture, torch.transpose(mixture, 3, 2).conj()), dim=(3, 2))
+
+        # Compute the inverse of the spatial covariance matrix
+        R_inv = torch.inverse(R)
+
+        # Compute the MVDR weight vector for each batch and time bin
+        w = torch.matmul(R_inv, target)
+
+        # Apply beamforming to the mixture signals
+        beamformed = torch.matmul(w.transpose(2, 3).conj(), mixture)
+
+        # Transpose to have the final shape as (B, T, F)
+        beamformed = torch.transpose(beamformed, 3, 2)
+
+        # Return the beamformed signals
+        return beamformed.real
+
+    def forward(self, wav, n_channel):
+        """Enc/Mask/Dec model forward
+
+        Args:
+            wav (torch.Tensor): waveform tensor. 1D, 2D or 3D tensor, time last.
+
+        Returns:
+            torch.Tensor, of shape (batch, n_src, time) or (n_src, time).
+        """
+        # Remember shape to shape reconstruction, cast to Tensor for torchscript
+        # shape = jitable_shape(wav)
+        # Reshape to (batch, n_mix, time)
+        wav = _unsqueeze_to_3d(wav)
+        # print("wav.shape")
+        # print(wav.shape)  # torch.Size([6, 2, 64000]) B x C x T
+        # Real forward
+        mix_tf_rep = self.forward_encoder(wav)
+        print("mix_tf_rep.shape")
+        print(mix_tf_rep.shape)
+
+        # torch.Size([6, 2, 512, 7999]) B x 2 x D x T (resampled by stride 8)
+        b, c, f, t = mix_tf_rep.shape
+
+        tf_rep = mix_tf_rep.view(b, c * f, t)
+        # print("tf_rep.shape")  # torch.Size([6, 1024, 7999])
+        # print(tf_rep.shape)
+        est_masks = self.forward_masker(tf_rep)
+        print("est_masks.shape")
+        print(est_masks.shape)
+        # torch.Size([6, 1, 1024, 7999]) B x (src) x D x T
+        # print(est_masks)
+        est_masks = est_masks.view(b, c, f, t)
+
+        # df = self.mvdr(wav, reconstructed.unsqueeze(1))
+        beamformed = self.mvdr()
+
+        masked_tf_rep = self.apply_masks(tf_rep, est_masks)
+        # print("masked_tf_rep.shape")
+        # print(masked_tf_rep.shape)
+        # torch.Size([6, 1, 1024, 7999]) B x (src) x D x T
+
+        masked_tf_rep = masked_tf_rep.view(b, c, f, t)
+        print("masked_tf_rep.shape")
+        print(masked_tf_rep.shape)  # torch.Size([6, 2, 512, 7999]) torch.Size([2, 2, 512, 7999])
+        #
+        # beamformed = self.mvdr_beamforming(mix_tf_rep, masked_tf_rep)
+        print(beamformed)
+
+        # est_bf = self.mvdr(wav, self.permute_sig(est_s.detach(), causal=self.causal))[0].detach()
+
+        # print("bf.shape")
+        # print(bf.shape)  # torch.Size([6, 2, 512, 7999])
+
+        decoded = self.forward_decoder(masked_tf_rep)
+        print("decoded.shape")
+        print(decoded.shape)
+        # torch.Size([6, 2, 64000])  B x 1 (mix) x T
+        reconstructed = pad_x_to_y(decoded, wav)
+        print("reconstructed.shape")
+        print(reconstructed.shape)
+        # torch.Size([6, 2, 64000])  B x 1 (mix) x T
+        # xs_noise = wav - reconstructed
+        # Xs = self.stft(wav.permute(0, 2, 1))
+        # Ns = self.stft(xs_noise.permute(0, 2, 1))
+        # # print(Xs.shape)
+        # XXs = self.cov(Xs)
+        # NNs = self.cov(Ns)
+        # tdoas = self.gccphat(XXs)
+        # Ys = self.mvdr(Xs, NNs, tdoas)
+        # ys = self.istft(Ys)
+        # print("ys.shape")
+        # print(ys.shape)
+        # torch.Size([6, 64000, 1])
+        # return ys.permute(0, 2, 1)
+        # df = self.mvdr(wav, reconstructed.unsqueeze(1))
+        # print("df", df.shape)
+        # return reconstructed[:, 0, :].unsqueeze(1)
+        return reconstructed.unsqueeze(1)
 
     def forward_encoder(self, wav: torch.Tensor) -> torch.Tensor:
         """Computes time-frequency representation of `wav`.
@@ -326,7 +571,7 @@ def _shape_reconstructed(reconstructed, size):
 # Backwards compatibility
 BaseTasNet = BaseEncoderMaskerDecoder
 
-random_seed=1234
+random_seed = 1234
 torch.manual_seed(random_seed)
 torch.cuda.manual_seed_all(random_seed)
 random.seed(random_seed)

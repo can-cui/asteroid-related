@@ -1,6 +1,6 @@
 # Models
 from .base_models import BaseModel
-from .conv_tasnet import ConvTasNet
+from .conv_tasnet import ConvTasNet, ConvTasNet_mvdr
 from .dccrnet import DCCRNet
 from .dcunet import DCUNet
 from .dprnn_tasnet import DPRNNTasNet
@@ -11,10 +11,14 @@ from .lstm_tasnet import LSTMTasNet
 from .demask import DeMask
 from .x_umx import XUMX
 
+# from .mvdr_model import MVDR
+
 # Sharing-related
 from .publisher import save_publishable, upload_publishable
 
 __all__ = [
+    # "MVDR",
+    "ConvTasNet_mvdr",
     "ConvTasNet",
     "DPRNNTasNet",
     "SuDORMRFImprovedNet",

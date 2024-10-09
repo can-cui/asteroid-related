@@ -85,14 +85,15 @@ class AMIxDataset(Dataset):
             for spk in spks_to_remove[meeting]:
                 del self.spk_dict[meeting][spk]
 
+        overlap = 0.25
         if nspk == 1:
             # nspk = random.sample(range(1, 5), 1)[0]  # 1-4 spk get_reverb_mix_src_dereverb
-            # nspk = 1
+            # nspk = 2
             mixtures, sources = get_mix_src_ami(
                 self.spk_dict, nspk, nmic, c_ex
             )  # dynamic mixing (only work for 1spk)
         else:
-            mixtures, sources = get_mix_src_ami_sep(self.spk_dict, nspk, nmic, c_ex)
+            mixtures, sources = get_mix_src_ami_sep(self.spk_dict, nspk, nmic, c_ex, overlap)
         # torchaudio.save("src1.wav", sources[:, 0].cpu(), 16000, channels_first=True)
         # torchaudio.save("src2.wav", sources[:, 1].cpu(), 16000, channels_first=True)
         # sys.exit()

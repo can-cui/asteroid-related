@@ -23,6 +23,9 @@ from scipy import signal
 import ast
 import soundfile as sf
 import speechbrain as sb
+import torchaudio
+from nara_wpe.utils import stft, istft, get_stft_center_frequencies
+from nara_wpe.wpe import wpe
 
 
 def get_delayed_audio(wav_file, delay, sampling_rate=16000):
@@ -1599,6 +1602,20 @@ def get_mix_src_ami(spk_dict, nspk, nmic, sample):
                     sources[i] += spk
     mixtures = torch.cat(mixtures, 0)
     # WPE
+    stft_options = dict(size=512, shift=128)
+
+    # sig = torch.stack(sig, dim=0)
+    Y = stft(mixtures, **stft_options)
+    # print(Y.shape)
+    Y = Y.transpose(2, 0, 1)
+    Z = wpe(Y)
+    mixtures = istft(
+        Z.transpose(1, 2, 0),
+        size=stft_options["size"],
+        shift=stft_options["shift"],
+    )
+    mixtures = torch.from_numpy(mixtures).float()
+    # WPE
     sources = torch.cat(sources, 0)
     sources = sources.unsqueeze(1)
 
@@ -1606,7 +1623,7 @@ def get_mix_src_ami(spk_dict, nspk, nmic, sample):
     return mixtures, sources
 
 
-def get_mix_src_ami_sep(spk_dict, nspk, nmic, sample):
+def get_mix_src_ami_sep(spk_dict, nspk, nmic, sample, overlap):
     # print()
     spk_id = list(sample.keys())[0]
 
@@ -1621,9 +1638,12 @@ def get_mix_src_ami_sep(spk_dict, nspk, nmic, sample):
         elif nmic == 8:
             mics = ["1", "2", "3", "4", "5", "6", "7", "8"]
     mixtures = []
-    mixture, fs = sf.read(sample[spk_id][mics[0]]["array"], dtype="float32")
-    sources_list = torch.zeros([nmic, nspk, len(mixture)])
+    # mixture, fs = sf.read(sample[spk_id][mics[0]]["array"], dtype="float32")
+    # sources_list = torch.zeros([nmic, nspk, len(mixture)])
+    sources_list = []
     for i in range(nmic):
+        mixtures.append([])  # Append an empty list to mixtures
+        sources_list.append([])  # Append an empty list to sources_list
         c_mic = sample[spk_id][mics[i]]
         # try:
         #     print(c_mic["headset"])
@@ -1631,15 +1651,16 @@ def get_mix_src_ami_sep(spk_dict, nspk, nmic, sample):
         #     print(c_mic)
         mixture, fs = sf.read(c_mic["array"], dtype="float32")  # load all
         spk1, fs = sf.read(c_mic["headset"], dtype="float32")
-        # except:
-        #     print(c_mic)
-        #     sys.exit()
+
+        # delay_frame = int(delay * 16000)
+
+        mixture = torch.from_numpy(mixture)
+        mixtures[i].append(mixture)
         # mixtures.append(mixture)
-        # sources.append(spk1)
-        mixture = torch.from_numpy(mixture).unsqueeze(0)
-        mixtures.append(mixture)
+
         spk1 = torch.from_numpy(spk1)
-        sources_list[i][0] = spk1
+
+        sources_list[i].append(spk1)
         # sources_list.append(spk1)
 
     meeting_id = sample[spk_id]["1"]["headset"].split("/")[-4]
@@ -1657,6 +1678,9 @@ def get_mix_src_ami_sep(spk_dict, nspk, nmic, sample):
     #         spks_to_remove.append(spk)
     # for spk in spks_to_remove:
     #     filtered_spk.remove(spk)
+    # print(len(mixture))
+    delay_frame = int(len(mixture) * (1 - float(overlap)))
+    # print(delay_frame)
 
     if len(filtered_spk) >= (nspk - 1):
         other_spks = random.sample(filtered_spk, nspk - 1)
@@ -1668,10 +1692,19 @@ def get_mix_src_ami_sep(spk_dict, nspk, nmic, sample):
                 c_mic = other_sample[mics[i]]
                 mixture, fs = sf.read(c_mic["array"], dtype="float32")  # load all
                 spk, fs = sf.read(c_mic["headset"], dtype="float32")
-                mixture = torch.from_numpy(mixture).unsqueeze(0)
-                mixtures[i] += mixture
-                spk = torch.from_numpy(spk).unsqueeze(0)
-                sources_list[i][spk_idx + 1] = spk
+                mixture = torch.from_numpy(mixture)
+
+                spk = torch.from_numpy(spk)
+                # print(spk.shape)
+
+                if delay_frame != 0:
+                    padding_tensor = torch.zeros(delay_frame)
+                    mixture = torch.cat((padding_tensor, mixture), dim=0)
+                    # print(len(mixture))
+                    spk = torch.cat((padding_tensor, spk), dim=0)
+
+                mixtures[i].append(mixture)
+                sources_list[i].append(spk)
     else:
 
         tmp_spk_dict = list(spk_dict.keys())
@@ -1687,15 +1720,6 @@ def get_mix_src_ami_sep(spk_dict, nspk, nmic, sample):
         others_meeting = random.sample(tmp_spk_dict, 1)[0]
         # print(others_meeting)
         all_others_spk = list(spk_dict[others_meeting].keys())
-        # print(all_others_spk)
-        # spks_to_remove = []
-        # for spk in all_others_spk:
-        #     if len(spk_dict[others_meeting][spk]) < 1:
-        #         spks_to_remove.append(spk)
-        # for spk in spks_to_remove:
-        #     all_others_spk.remove(spk)
-        # print(all_others_spk)
-        # print(nspk - 1)
         other_spks = random.sample(all_others_spk, nspk - 1)
         for spk_idx, other_spk in enumerate(other_spks):
             other_sample = random.sample(spk_dict[others_meeting][other_spk], 1)[0]
@@ -1704,14 +1728,34 @@ def get_mix_src_ami_sep(spk_dict, nspk, nmic, sample):
                 c_mic = other_sample[mics[i]]
                 mixture, fs = sf.read(c_mic["array"], dtype="float32")  # load all
                 spk, fs = sf.read(c_mic["headset"], dtype="float32")
-                mixture = torch.from_numpy(mixture).unsqueeze(0)
-                mixtures[i] += mixture
-                spk = torch.from_numpy(spk).unsqueeze(0)
-                sources_list[i][spk_idx + 1] = spk
+                mixture = torch.from_numpy(mixture)
 
-    mixtures = torch.cat(mixtures, 0)
+                spk = torch.from_numpy(spk)
+                # delay_frame = len(mixture) * (1 - float(overlap))
+                if delay_frame != 0:
+                    padding_tensor = torch.zeros(delay_frame)
+                    mixture = torch.cat((padding_tensor, mixture), dim=0)
+                    spk = torch.cat((padding_tensor, spk), dim=0)
 
-    return mixtures, sources_list
+                mixtures[i].append(mixture)
+                sources_list[i].append(spk)
+    # print(sources_list)
+    max_length = max([audio.size(0) for audio in mixtures[0]])
+    mixtures_list_tensor = torch.zeros([nmic, nspk, max_length])
+    sources_list_tensor = torch.zeros([nmic, nspk, max_length])
+    for channel in range(nmic):
+        for speaker in range(nspk):
+            mix = mixtures[channel][speaker]
+            current_spk = sources_list[channel][speaker]
+            mixtures_list_tensor[channel][speaker][: len(mix)] = mix
+            sources_list_tensor[channel][speaker][: len(current_spk)] = current_spk
+    mixtures_list_tensor = mixtures_list_tensor.sum(dim=1)
+    # print(sources_list_tensor)
+    # print(mixtures_list_tensor.shape)
+    # print(sources_list_tensor.shape)
+    # sys.exit()
+
+    return mixtures_list_tensor, sources_list_tensor
 
 
 def get_reverb_mix_src_dereverb(
@@ -1800,3 +1844,170 @@ def get_reverb_mix_src_dereverb(
     # print("src_list.shape")
     # print(src_list.shape)
     return mix_list, src_list, texts
+
+
+def get_mix_src_ami_sep_123spk(chn, spk_dict, nmic, sample):
+    # print()
+    # nspk = random.sample(range(1, 4), 1)[0]  # 1- 3 spk
+    nspk = 3
+    spk_id = list(sample.keys())[0]
+
+    real_mics = [x for x in sample[spk_id].keys()]
+    if len(real_mics) == 8:
+        if nmic == 2:
+            mics = ["1", "5"]
+        elif nmic == 3:
+            mics = ["1", "3", "6"]
+        elif nmic == 4:
+            mics = ["1", "3", "5", "7"]
+        elif nmic == 8:
+            mics = ["1", "2", "3", "4", "5", "6", "7", "8"]
+    mixtures = []
+    # mixture, fs = sf.read(sample[spk_id][mics[0]]["array"], dtype="float32")
+    # sources_list = torch.zeros([nmic, nspk, len(mixture)])
+    sources_list = []
+    for i in range(nmic):
+        mixtures.append([])  # Append an empty list to mixtures
+        sources_list.append([])  # Append an empty list to sources_list
+        c_mic = sample[spk_id][mics[i]]
+        # try:
+        #     print(c_mic["headset"])
+        # except:
+        #     print(c_mic)
+        mixture, fs = sf.read(c_mic["array"], dtype="float32")  # load all
+        spk1, fs = sf.read(c_mic["headset"], dtype="float32")
+
+        # delay_frame = int(delay * 16000)
+
+        mixture = torch.from_numpy(mixture)
+        mixtures[i].append(mixture)
+        # mixtures.append(mixture)
+
+        spk1 = torch.from_numpy(spk1)
+
+        sources_list[i].append(spk1)
+        # sources_list.append(spk1)
+
+    meeting_id = sample[spk_id]["1"]["headset"].split("/")[-4]
+    # print("meeting_id", meeting_id)
+    all_spk = list(spk_dict[meeting_id].keys())
+    # print("all_spk", all_spk)
+    # nspk = min(len(all_spk), nspk)
+    # if nspk>1:
+
+    filtered_spk = [item for item in all_spk if item != spk_id]
+    # print("filtered_spk", filtered_spk)
+    # spks_to_remove = []
+    # for spk in filtered_spk:
+    #     if len(spk_dict[meeting_id][spk]) < 1:
+    #         spks_to_remove.append(spk)
+    # for spk in spks_to_remove:
+    #     filtered_spk.remove(spk)
+    # print(len(mixture))
+    # delay_frame = int(len(mixture) * (1 - float(overlap)))
+    # print(delay_frame)
+    delay_at_prev_step = 0
+    mixed_audio_lens = len(mixture)
+    if len(filtered_spk) >= (nspk - 1):
+        other_spks = random.sample(filtered_spk, nspk - 1)
+
+        for spk_idx, other_spk in enumerate(other_spks):
+            other_sample = random.sample(spk_dict[meeting_id][other_spk], 1)[0]
+            min_delay_sec = 0.5 * 16000 + delay_at_prev_step
+            max_delay_sec = min(mixed_audio_lens, (6 / nspk) * 16000)
+            delay = random.uniform(min_delay_sec, max_delay_sec)
+            delay_frame = int(delay)
+            for i in range(nmic):
+                c_mic = other_sample[mics[i]]
+                mixture, fs = sf.read(c_mic["array"], dtype="float32")  # load all
+                spk, fs = sf.read(c_mic["headset"], dtype="float32")
+                mixture = torch.from_numpy(mixture)
+
+                spk = torch.from_numpy(spk)
+                # print(spk.shape)
+
+                if delay_frame != 0:
+                    padding_tensor = torch.zeros(delay_frame)
+                    mixture = torch.cat((padding_tensor, mixture), dim=0)
+                    # print(len(mixture))
+                    spk = torch.cat((padding_tensor, spk), dim=0)
+
+                mixtures[i].append(mixture)
+                sources_list[i].append(spk)
+            mixed_audio_lens = max(mixed_audio_lens, delay + len(mixture))
+            delay_at_prev_step = delay
+    else:
+
+        tmp_spk_dict = list(spk_dict.keys())
+        tmp_spk_dict.remove(meeting_id)
+
+        meeting_to_remove = []
+        for meeting in tmp_spk_dict:
+            if len(spk_dict[meeting]) < nspk - 1:
+                meeting_to_remove.append(meeting)
+        for spk in meeting_to_remove:
+            tmp_spk_dict.remove(spk)
+
+        others_meeting = random.sample(tmp_spk_dict, 1)[0]
+        # print(others_meeting)
+        all_others_spk = list(spk_dict[others_meeting].keys())
+        other_spks = random.sample(all_others_spk, nspk - 1)
+        for spk_idx, other_spk in enumerate(other_spks):
+            other_sample = random.sample(spk_dict[others_meeting][other_spk], 1)[0]
+            min_delay_sec = 0.5 * 16000 + delay_at_prev_step
+            max_delay_sec = min(mixed_audio_lens, (6 / nspk) * 16000)
+            delay = random.uniform(min_delay_sec, max_delay_sec)
+            delay_frame = int(delay)
+            for i in range(nmic):
+                c_mic = other_sample[mics[i]]
+                mixture, fs = sf.read(c_mic["array"], dtype="float32")  # load all
+                spk, fs = sf.read(c_mic["headset"], dtype="float32")
+                mixture = torch.from_numpy(mixture)
+
+                spk = torch.from_numpy(spk)
+
+                if delay_frame != 0:
+                    padding_tensor = torch.zeros(delay_frame)
+                    mixture = torch.cat((padding_tensor, mixture), dim=0)
+                    spk = torch.cat((padding_tensor, spk), dim=0)
+
+                mixtures[i].append(mixture)
+                sources_list[i].append(spk)
+            mixed_audio_lens = max(mixed_audio_lens, delay + len(mixture))
+            # print(mixed_audio_lens)
+            delay_at_prev_step = delay
+    # print(sources_list)
+    max_length = max([audio.size(0) for audio in mixtures[0]])
+    # print(max_length)
+    mixtures_list_tensor = torch.zeros([nmic, 3, max_length])
+    sources_list_tensor = torch.zeros([nmic, 3, max_length])
+    for channel in range(nmic):
+        for speaker in range(nspk):
+            mix = mixtures[channel][speaker]
+            current_spk = sources_list[channel][speaker]
+            mixtures_list_tensor[channel][speaker][: len(mix)] = mix
+            sources_list_tensor[channel][speaker][: len(current_spk)] = current_spk
+    mixtures_list_tensor = mixtures_list_tensor.sum(dim=1)
+    if chn == 3:
+
+        ## padding of source to reverb
+        if nspk == 1:
+            sources_list_tensor[:, 1] = mixtures_list_tensor - sources_list_tensor[:, 0]
+            sources_list_tensor[:, 2] = mixtures_list_tensor - sources_list_tensor[:, 0]
+        elif nspk == 2:
+            sources_list_tensor[:, 2] = (
+                mixtures_list_tensor - sources_list_tensor[:, 0] - sources_list_tensor[:, 1]
+            )
+    elif chn == 2:
+        if nspk == 1:
+            sources_list_tensor[:, 1] = mixtures_list_tensor - sources_list_tensor[:, 0]
+            # sources_list_tensor = sources_list_tensor[:, :2]
+        elif nspk == 3:
+            sources_list_tensor[:, 0] = sources_list_tensor[:, 0] + sources_list_tensor[:, 2]
+            # sources_list_tensor = sources_list_tensor[:, :2]
+    # print("mixtures_list_tensor.shape")
+    # print(mixtures_list_tensor.shape)
+    # print("sources_list_tensor.shape")
+    # print(sources_list_tensor.shape)
+
+    return mixtures_list_tensor, sources_list_tensor[:, :chn]

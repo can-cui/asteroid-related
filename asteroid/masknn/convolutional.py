@@ -156,7 +156,6 @@ class TDConvNet(nn.Module):
         self.norm_type = norm_type
         self.mask_act = mask_act
         self.causal = causal
-
         layer_norm = norms.get(norm_type)(in_chan)
         bottleneck_conv = nn.Conv1d(in_chan, bn_chan, 1)
         self.bottleneck = nn.Sequential(layer_norm, bottleneck_conv)
@@ -200,6 +199,8 @@ class TDConvNet(nn.Module):
         Returns:
             :class:`torch.Tensor`: estimated mask of shape $(batch, nsrc, nfilters, nframes)$
         """
+        # print("mixture_w.shape")
+        # print(mixture_w.shape)
         batch, _, n_frames = mixture_w.size()
         output = self.bottleneck(mixture_w)
         skip_connection = torch.tensor([0.0], device=output.device)
