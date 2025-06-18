@@ -7,8 +7,8 @@ on:
   # See here for scheduler events
   # https://docs.github.com/en/free-pro-team@latest/actions/reference/events-that-trigger-workflows#scheduled-events
   # CRON 0 0 * * * means the first minute of the first hour every day.
-  schedule:
-  - cron:  '0 0 * * *'
+  # schedule:
+  # - cron:  '0 0 * * *'
 
 jobs:
   src-test:
